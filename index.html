@@ -374,6 +374,10 @@ html, body, button, a, label, input, select, textarea { touch-action: manipulati
 .lp-tag { color: #C02020; font-weight: 800; margin-left: 6px; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lp-tag { color: #FF7A6E; } }
 :root[data-theme="dark"] .lp-tag { color: #FF7A6E; }
+.note-sugg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.note-sugg .btn { text-align: left; }
+.note-sugg .btn:disabled { opacity: .45; background: transparent; cursor: default; }
+.cal-field.cal-off .cal-txt, .cal-field.cal-off .cal-btn { opacity: .45; cursor: not-allowed; }
 .pill.fest { background: var(--idle-bg); color: var(--idle-fg); }
 .pill.fest::before { display: none; }
 .day-fest { opacity: .75; }
@@ -1459,6 +1463,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return null;
   }
   // Schede salvate prima della regola "chirurgo solo dall'elenco": il chirurgo fuori elenco (es. il cardiologo con (OP)) viene ricalcolato
+  async function correggiEsamiCuore() {
+    if (S.role !== "admin") return;
+    for (const [id, a] of Object.entries(S.attesa)) {
+      const es = [...(a.esami || [])];
+      if (a.data_coro && !es.includes("CORONAROGRAFIA")) es.push("CORONAROGRAFIA");
+      if (a.data_tac && !es.includes("TC CUORE")) es.push("TC CUORE");
+      if (es.length !== (a.esami || []).length) await S.db.doc("attesa/" + id).update({ esami: es }).catch(() => {}); // senza updatedAt: stessa correzione su PC e iPhone
+    }
+  }
   async function correggiChirurghi() {
     if (S.role !== "admin" || !S.chirurghi.length) return;
     let n = 0;
@@ -2578,7 +2591,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         ${Array.from({ length: nRows }, (_, i) => chirRow(i, ch[i])).join("")}
         <button type="button" class="btn small ghost" id="chir-add" ${nRows >= 4 ? "hidden" : ""}>+ Aggiungi IV chirurgo</button>
       </fieldset>
-      <div class="field"><label for="note">Note</label><textarea id="note" name="note">${esc(p.note)}</textarea></div>
+      <div class="field"><label for="note">Note <span class="opt">(compaiono nel riepilogo del giorno)</span></label><textarea id="note" name="note">${esc(p.note)}</textarea>
+        <div class="note-sugg" id="p-note-sugg" hidden></div></div>
       ${saveBar(S.programma[date]?.slots?.[k] ? `<button type="button" class="btn danger" id="p-clear">Libera lo slot</button>` : "")}
     </form>`, async (fd, form, bozza) => {
       let chir = fd.getAll("chir").map((v) => v.trim());
@@ -2612,9 +2626,23 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         if (e.target.name !== "modo") return;
         const man = e.target.value === "manuale";
         $("#manuale", form).hidden = !man; $("#da-lista", form).hidden = man;
-        if (man) { $("#p-att", form).value = ""; const c = $("#p-cerca", form); if (c) c.value = ""; const g = $("#p-gia", form); if (g) g.hidden = true; }
+        if (man) { $("#p-att", form).value = ""; const c = $("#p-cerca", form); if (c) c.value = ""; const g = $("#p-gia", form); if (g) g.hidden = true; $("#p-note-sugg", form).hidden = true; }
         check();
       });
+      // Note della scheda come suggerimenti: si sceglie cosa riportare nella programmazione (niente copia automatica)
+      const noteBox = $("#p-note-sugg", form);
+      const mostraNoteScheda = (id) => {
+        const righe = lines(S.attesa[id]?.note || "");
+        noteBox.hidden = !righe.length;
+        noteBox.innerHTML = righe.length ? `<span class="hint" style="margin:0">Dalla scheda:</span>${righe.map((r) => `<button type="button" class="btn small ghost" data-nota="${esc(r)}">+ ${esc(r)}</button>`).join("")}` : "";
+      };
+      noteBox.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-nota]"); if (!b) return;
+        const t = form.note, attuali = lines(t.value);
+        if (!attuali.includes(b.dataset.nota)) t.value = [...attuali, b.dataset.nota].join("\n");
+        b.disabled = true; check();
+      });
+      if ($("#p-att", form)?.value) mostraNoteScheda($("#p-att", form).value);
       // Suggeritore: scrivendo il cognome propone i pazienti in lista non ancora operati; segnala chi è già programmato in un'altra data
       const cerca = $("#p-cerca", form), lista = $("#p-sugg", form), gia = $("#p-gia", form);
       const norm = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
@@ -2626,7 +2654,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         if (a.accesso) form.querySelectorAll("input[name=accesso]").forEach((r) => (r.checked = r.value === a.accesso));
         const primo = nomeInElenco(a.chirurgo) || chirurgoDaMedico(a.medico);
         if (primo && !$("#chir-0", form).value) $("#chir-0", form).value = primo;
-        if (a.note && !form.note.value) form.note.value = a.note;
+        mostraNoteScheda(id);
         check();
       };
       let trovati = [], sel = -1;
@@ -2743,7 +2771,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   // ---------- scheda paziente completa (modello del modulo di prenotazione ricovero) ----------
   // Campo data con il calendario dell'app (dal mese corrente in avanti); il valore sta nel campo nascosto name
   const ICONA_CAL = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>`;
-  const campoData = (name, label, val) => `<div class="field cal-field" data-cal="${name}"><label for="${name}-txt">${label}</label>
+  const campoData = (name, label, val, off = false) => `<div class="field cal-field${off ? " cal-off" : ""}" data-cal="${name}"><label for="${name}-txt">${label}</label>
       <div class="cal-in"><input id="${name}-txt" class="cal-txt" readonly value="${val ? fmtNum(val) : ""}" placeholder="gg/mm/aaaa">
       <button type="button" class="icon-btn cal-btn" aria-label="Apri il calendario" aria-expanded="false">${ICONA_CAL}</button></div>
       <input type="hidden" id="${name}" name="${name}" value="${esc(val || "")}"><div class="cal-pan" hidden></div></div>`;
@@ -2777,6 +2805,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   function schedaFields(a) {
     const dg = a.diagnosi || [], ex = new Set(a.esami || []), exd = new Set(a.esami_dubbi || []);
+    if (a.data_coro) ex.add("CORONAROGRAFIA"); // con la data, l'esame è previsto
+    if (a.data_tac) ex.add("TC CUORE");
     return `<div class="upper" style="display:grid;gap:12px">
     <div class="marks" id="marks" aria-live="polite"></div>
     <details class="sec" open><summary>Anagrafica</summary><div class="in">
@@ -2815,7 +2845,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <details class="sec"><summary>Esami da effettuare il giorno del ricovero</summary><div class="in">
       <div class="exams">${ESAMI.map((e) => { const st = exd.has(e) ? 2 : ex.has(e) ? 1 : 0; return `<button type="button" class="exam" data-ex="${e}" data-st="${st}" aria-pressed="${st > 0}">${["☐", "☒", "☒"][st]} ${e}${st === 2 ? " ?" : ""}</button>`; }).join("")}</div>
       <span class="hint">Tocca: ☐ → ☒ da fare → ☒ ? dubbio → ☐.</span>
-      <div class="grid2">${campoData("data_coro", 'Data coronarografia <span class="opt">(se prevista)</span>', a.data_coro)}${campoData("data_tac", 'Data TC cuore <span class="opt">(se prevista)</span>', a.data_tac)}</div>
+      <div class="grid2">${campoData("data_coro", 'Data coronarografia <span class="opt">(se prevista)</span>', a.data_coro, !ex.has("CORONAROGRAFIA"))}${campoData("data_tac", 'Data TC cuore <span class="opt">(se prevista)</span>', a.data_tac, !ex.has("TC CUORE"))}</div>
       ${field("altro", "Altro", a.altro, 'autocomplete="off"')}
     </div></details>
     <details class="sec"><summary>Note, allergie, patologie</summary><div class="in">
@@ -2855,6 +2885,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     form.querySelectorAll(".exam").forEach((b) => b.addEventListener("click", () => {
       const st = (+b.dataset.st + 1) % 3; b.dataset.st = st; b.setAttribute("aria-pressed", st > 0);
       b.textContent = `${["☐", "☒", "☒"][st]} ${b.dataset.ex}${st === 2 ? " ?" : ""}`;
+      // date di coronarografia e TC cuore: si scelgono solo con l'esame segnato; togliendo il segno la data si cancella
+      const campo = { CORONAROGRAFIA: "data_coro", "TC CUORE": "data_tac" }[b.dataset.ex];
+      const box = campo && $(`[data-cal="${campo}"]`, form);
+      if (box) {
+        box.classList.toggle("cal-off", st === 0);
+        if (st === 0) { $('input[type="hidden"]', box).value = ""; $(".cal-txt", box).value = ""; $(".cal-pan", box).hidden = true; }
+      }
     }));
     $("#farm-add", form).addEventListener("click", () => { $("#farm-list", form).insertAdjacentHTML("beforeend", farmRow()); $("#farm-list .farm-row:last-child input", form).focus(); });
   }
@@ -3444,6 +3481,7 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
     const box = e.target.closest(".cal-field"); if (!box) return;
     const pan = $(".cal-pan", box), hid = $('input[type="hidden"]', box), txt = $(".cal-txt", box);
     const apri = (si) => { pan.hidden = !si; $(".cal-btn", box).setAttribute("aria-expanded", String(si)); };
+    if (box.classList.contains("cal-off")) return; // data disponibile solo con l'esame segnato
     if (e.target.closest(".cal-btn, .cal-txt")) {
       if (!pan.hidden) return apri(false);
       document.querySelectorAll(".cal-field .cal-pan").forEach((x) => { if (x !== pan) x.hidden = true; });
@@ -3563,7 +3601,7 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
     const lost = () => toast("Collegamento alla lista interrotto. Ricarica la pagina.");
     ["programma", "esecuzione", "attesa"].forEach((k) => db.collection(k).onSnapshot((s) => {
       S[k] = toMap(s);
-      if (first[k]) { first[k] = 0; if (--pending === 0) { S.ready = true; setTimeout(correggiChirurghi, 500); } }
+      if (first[k]) { first[k] = 0; if (--pending === 0) { S.ready = true; setTimeout(correggiChirurghi, 500); setTimeout(correggiEsamiCuore, 900); } }
       render();
     }, lost));
     db.doc("config/chirurghi").onSnapshot((d) => {
