@@ -3343,57 +3343,15 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
   // Report come pagine di un calendario settimanale: una pagina per settimana, una colonna per giorno, due slot per giorno
   // Pianificazione ricovero: per ogni paziente in sala nel periodo, gli accertamenti preoperatori da organizzare
   const ESAMI_ROUTINE = ["EMATOCHIMICI", "ECG", "RX TORACE"];
-  function pianificazionePdf(kind) {
-    const per = periodo(kind);
-    const righe = [];
-    for (let g = new Date(per.from); g <= per.to; g = addDays(g, 1)) {
-      const d = ymd(g);
-      slotsDi(d).forEach((sl) => {
-        const p = S.programma[d]?.slots?.[sl.k]; if (!p || p.cchped) return;
-        const a = (p.attesaId && S.attesa[p.attesaId]) || {}, dubbi = new Set(a.esami_dubbi || []);
-        const esami = (a.esami || []).filter((e) => !ESAMI_ROUTINE.includes(e) && e !== "CORONAROGRAFIA" && e !== "TC CUORE").map((e) => e + (dubbi.has(e) ? " ?" : ""));
-        if (a.altro) esami.push(a.altro.toUpperCase());
-        righe.push({ quando: `${fmtDay(d, { weekday: "short", day: "numeric", month: "short" })}\n${sl.lp ? "LP " : ""}${sl.label.replace(/^LP · /, "")}`, nome: pazNome(p), lp: pazLP(p, sl.lp),
-          ingresso: a.ingresso ? fmtNum(a.ingresso) : "da definire", esami: esami.join(", ") || "—", cuore: esamiCuore(p).replace(/\s+·\s+/g, "\n") || "—",
-          tel: [a.abit, a.cell1, a.cell2].filter(Boolean).join("\n") || "—", note: p.note || "" });
-      });
-    }
-    const doc = nuovoPdf("landscape");
-    const PW = 297, PH = 210, M = 10, ink = [18, 32, 28], mut = [110, 120, 117], acc = [11, 110, 95];
-    const COL = [["Intervento", 27], ["Paziente", 44], ["Ingresso", 21], ["Accertamenti preoperatori", 62], ["Coro / TAC cuore", 42], ["Telefoni", 36], ["Note", 45]];
-    const titolo = per.titolo.replace(/^RIEPILOGO/, "PIANIFICAZIONE RICOVERO");
-    const testa = (y) => {
-      doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.setTextColor(...ink); doc.text("LISTA OPERATORIA", M, 14);
-      doc.setFontSize(10); doc.setTextColor(...acc); doc.text(pdfSafe(titolo), M, 21);
-      doc.setFillColor(...acc); doc.rect(M, 26, PW - 2 * M, 8, "F"); doc.setFontSize(8.5); doc.setTextColor(255, 255, 255);
-      let x = M; COL.forEach(([t, w]) => { doc.text(t.toUpperCase(), x + 2, 31.3); x += w; });
-      return 34;
-    };
-    let y = testa();
-    doc.setLineWidth(0.2); doc.setDrawColor(190, 200, 197);
-    if (!righe.length) { doc.setFont("helvetica", "italic"); doc.setFontSize(10); doc.setTextColor(...mut); doc.text("Nessun paziente programmato in questo periodo.", M + 2, y + 8); }
-    righe.forEach((r, i) => {
-      doc.setFontSize(8.5);
-      const celle = [r.quando, r.nome, r.ingresso, r.esami, r.cuore, r.tel, r.note].map((t, c) => { doc.setFont("helvetica", c === 1 || c === 4 ? "bold" : "normal"); return doc.splitTextToSize(pdfSafe(t), COL[c][1] - 4 - (c === 1 && r.lp ? 7 : 0)); });
-      const h = Math.max(...celle.map((l) => l.length)) * 3.7 + 3.4;
-      if (y + h > PH - 12) { doc.addPage(); y = testa(); }
-      if (i % 2) { doc.setFillColor(242, 245, 244); doc.rect(M, y, PW - 2 * M, h, "F"); }
-      let x = M;
-      celle.forEach((l, c) => {
-        doc.setFont("helvetica", c === 1 || c === 4 ? "bold" : "normal"); doc.setFontSize(8.5);
-        doc.setTextColor(...(c === 4 ? [30, 84, 160] : c === 2 && r.ingresso === "da definire" ? mut : ink));
-        doc.text(l, x + 2, y + 4.4);
-        if (c === 1 && r.lp) { const w = doc.getTextWidth(l[0]); doc.setTextColor(...ROSSO_LP); doc.text("LP", x + 2 + w + 2, y + 4.4); }
-        x += COL[c][1];
-      });
-      doc.setDrawColor(190, 200, 197); doc.line(M, y + h, PW - M, y + h); y += h;
-    });
-    const n = doc.getNumberOfPages();
-    for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...mut);
-      doc.text(pdfSafe(`Generato il ${new Date().toLocaleString("it-IT")}  ·  Documento riservato: contiene dati personali e sanitari  ·  Pag. ${i}/${n}`), M, PH - 5); }
-    return { data: doc.output("arraybuffer"), file: per.file.replace(/^Riepilogo/, "Pianificazione ricovero") };
-  }
-  function reportPdf(kind) {
+  const esamiPreop = (p) => {
+    const a = (p?.attesaId && S.attesa[p.attesaId]) || {}, dubbi = new Set(a.esami_dubbi || []);
+    const es = (a.esami || []).filter((e) => !ESAMI_ROUTINE.includes(e) && e !== "CORONAROGRAFIA" && e !== "TC CUORE").map((e) => e + (dubbi.has(e) ? " ?" : ""));
+    if (a.altro) es.push(a.altro.toUpperCase());
+    return es.join(", ");
+  };
+  const telefoniRef = (p) => { const a = (p?.attesaId && S.attesa[p.attesaId]) || {}; return [a.abit, a.cell1, a.cell2].filter(Boolean).join(" · "); };
+  // ric = Pianificazione ricovero: stessa griglia settimanale, nei riquadri gli accertamenti preoperatori
+  function reportPdf(kind, ric = false) {
     const per = periodo(kind);
     const doc = nuovoPdf("landscape");
     const PW = 297, PH = 210, M = 10, top = 30, bottom = PH - 12;
@@ -3406,8 +3364,8 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
       if (wi > 0) doc.addPage();
       const sat = addDays(mon, 5), conSab = S.programma[ymd(sat)]?.straordinaria;
       const giorni = Array.from({ length: conSab ? 6 : 5 }, (_, i) => addDays(mon, i));
-      txt("LISTA OPERATORIA", M, 14, 15, "bold");
-      txt(pdfSafe(per.titolo), M, 21, 10, "bold", acc);
+      txt(ric ? "PIANIFICAZIONE RICOVERO" : "LISTA OPERATORIA", M, 14, 15, "bold");
+      txt(pdfSafe(ric ? per.titolo.replace(/^RIEPILOGO /, "") : per.titolo), M, 21, 10, "bold", acc);
       txt(pdfSafe(`Settimana dal ${mon.toLocaleDateString("it-IT", { day: "numeric", month: "long" })} al ${addDays(mon, giorni.length - 1).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}`), PW - M, 21, 9, "normal", mut, { align: "right" });
       const conLP = giorni.some((g) => lpRooms(ymd(g)).length);
       // Con sale LP: due righe ordinarie più basse (30% ciascuna) e la riga LP più alta (40%)
@@ -3421,6 +3379,18 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
         yy += nome.length * (small ? 4 : 4.6) + 1.5;
         const intv = wrap([p.procedura, p.procedura2].filter(Boolean).join(" ") || "Intervento da definire", small ? 8 : 9, "normal", cw - 6);
         txt(intv, x + 3, yy, small ? 8 : 9, "normal"); yy += intv.length * (small ? 3.5 : 4) + (small ? 1.5 : 3);
+        if (ric) { // pianificazione ricovero: ingresso, accertamenti, coro/TAC, telefoni, note della programmazione
+          const fs = small ? 7.5 : 8.5, lh = small ? 3.3 : 3.8, gap = small ? 1 : 2;
+          const riga = (t, style, rgb, max) => { if (!t) return; const r = wrap(t, fs, style, cw - 6).slice(0, max); txt(r, x + 3, yy, fs, style, rgb); yy += r.length * lh + gap; };
+          const ing = ingressoRef(p);
+          riga("INGRESSO: " + (ing ? fmtNum(ing) : "da definire"), "bold", ing ? ink : mut, 1);
+          riga(esamiPreop(p) ? "ESAMI: " + esamiPreop(p) : "", "normal", ink, 4);
+          riga(esamiCuore(p), "bold", [30, 84, 160], 2);
+          riga(telefoniRef(p) ? "TEL: " + telefoniRef(p) : "", "normal", ink, 2);
+          riga(p.note ? "NOTE: " + lines(p.note).join(" · ") : "", "normal", mut, 2);
+          if (p.bozza) { txt("BOZZA", x + 3, yy, 7.5, "bold", [156, 47, 28]); yy += 4; }
+          return yy;
+        }
         const med = medicoRef(p);
         if (med) { const m = wrap(cognomeMedico(med), small ? 7.5 : 8.5, "normal", cw - 6); txt(m, x + 3, yy, small ? 7.5 : 8.5, "normal", acc); yy += m.length * (small ? 3.3 : 3.8) + (small ? 1.5 : 3); }
         // riepilogo settimanale e mensile (non il giornaliero): data di ingresso sotto il medico referente
@@ -3462,7 +3432,7 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
               txt(nome, x + 3, yy, 8, "bold");
               { doc.setFont("helvetica", "bold"); doc.setFontSize(8); const w = doc.getTextWidth(nome[nome.length - 1]); txt("LP", Math.min(x + 3 + w + 2, x + cw - 8), yy + (nome.length - 1) * 3.5, 8, "bold", ROSSO_LP); }
               yy += nome.length * 3.5;
-              const det = wrap([[p.procedura, p.procedura2].filter(Boolean).join(" "), medicoRef(p) ? cognomeMedico(medicoRef(p)) : "", ingressoRef(p) ? "INGRESSO " + fmtNum(ingressoRef(p)) : "", kind === "week" ? esamiCuore(p) : ""].filter(Boolean).join(" · "), 7, "normal", cw - 6).slice(0, 3);
+              const det = wrap([[p.procedura, p.procedura2].filter(Boolean).join(" "), medicoRef(p) ? cognomeMedico(medicoRef(p)) : "", ingressoRef(p) ? "INGRESSO " + fmtNum(ingressoRef(p)) : "", kind === "week" || ric ? esamiCuore(p) : "", ric ? esamiPreop(p) : "", ric ? telefoniRef(p) : ""].filter(Boolean).join(" · "), 7, "normal", cw - 6).slice(0, 3);
               txt(det, x + 3, yy, 7, "normal", acc); yy += det.length * 3.1 + 1.6;
             });
           });
@@ -3475,7 +3445,7 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
       doc.setPage(i);
       txt(pdfSafe(`Generato il ${new Date().toLocaleString("it-IT")}  ·  Documento riservato: contiene dati personali e sanitari  ·  Pag. ${i}/${n}`), M, PH - 5, 7.5, "normal", mut);
     }
-    return { data: doc.output("arraybuffer"), file: per.file };
+    return { data: doc.output("arraybuffer"), file: ric ? per.file.replace(/^Riepilogo/, "Pianificazione ricovero") : per.file };
   }
 
   // ---------- events ----------
@@ -3569,7 +3539,7 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
       else if (act === "rpdf" || act === "rric") {
         if (!S.dl) { toast("Il PDF si può scaricare solo aprendo l'app da claude.ai."); return; }
         let r;
-        try { r = act === "rric" ? pianificazionePdf(b.dataset.k) : reportPdf(b.dataset.k); } catch { toast("Non riesco a creare il PDF. Ricarica la pagina e riprova."); return; }
+        try { r = reportPdf(b.dataset.k, act === "rric"); } catch { toast("Non riesco a creare il PDF. Ricarica la pagina e riprova."); return; }
         b.disabled = true;
         try { await salvaFile(r.file, r.data); } finally { b.disabled = false; }
       }
