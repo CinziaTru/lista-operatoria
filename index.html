@@ -1305,7 +1305,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <div class="lbl">${lbl}</div>
       <button class="icon-btn" data-act="wk" data-d="1" aria-label="Settimana successiva">›</button></div>`];
     out.push(`<div class="cal-tools">${calVista("week")}
-      <button class="btn small" data-act="rpdf" data-k="week">Riepilogo settimana PDF</button></div>`);
+      <button class="btn small" data-act="rpdf" data-k="week">Riepilogo settimana PDF</button><button class="btn small" data-act="rric" data-k="week">Pianificazione ricovero</button></div>`);
     if (S.week !== 0) out.push(`<button class="btn small ghost" data-act="wk" data-d="0" style="justify-self:center">Torna alla settimana corrente</button>`);
     for (let i = 0; i < 5; i++) out.push(dayBlock(ymd(addDays(mon, i)), { highlight: true }));
     const s = ymd(sat);
@@ -1332,7 +1332,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <div class="lbl" style="text-transform:capitalize">${lbl}</div>
       <button class="icon-btn" data-act="mo" data-d="1" aria-label="Mese successivo">›</button></div>`,
       `<div class="cal-tools">${calVista("month")}<span class="muted">${days.length} sedute · ${tot.ese} eseguiti · ${tot.prog} da eseguire · ${tot.liberi} slot liberi</span>
-        <button class="btn small" data-act="rpdf" data-k="month">Riepilogo mese PDF</button></div>`,
+        <button class="btn small" data-act="rpdf" data-k="month">Riepilogo mese PDF</button><button class="btn small" data-act="rric" data-k="month">Pianificazione ricovero</button></div>`,
 ];
     if (S.monthOff !== 0) out.push(`<button class="btn small ghost" data-act="mo" data-d="0" style="justify-self:center">Torna al mese corrente</button>`);
     if (!days.length) out.push(`<div class="empty-state"><h3>Nessuna seduta in questo mese</h3></div>`);
@@ -3341,6 +3341,58 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
       .filter(([, d, segnato, fatta]) => d || segnato || fatta).map(([n, d, , fatta]) => `${n}: ${fatta ? "GIÀ FATTA" : d ? fmtNum(d) + (a.ingresso && d < a.ingresso ? " AMB" : "") : "da definire"}`).join("  ·  "); // AMB: prima del ricovero, in ambulatorio
   };
   // Report come pagine di un calendario settimanale: una pagina per settimana, una colonna per giorno, due slot per giorno
+  // Pianificazione ricovero: per ogni paziente in sala nel periodo, gli accertamenti preoperatori da organizzare
+  const ESAMI_ROUTINE = ["EMATOCHIMICI", "ECG", "RX TORACE"];
+  function pianificazionePdf(kind) {
+    const per = periodo(kind);
+    const righe = [];
+    for (let g = new Date(per.from); g <= per.to; g = addDays(g, 1)) {
+      const d = ymd(g);
+      slotsDi(d).forEach((sl) => {
+        const p = S.programma[d]?.slots?.[sl.k]; if (!p || p.cchped) return;
+        const a = (p.attesaId && S.attesa[p.attesaId]) || {}, dubbi = new Set(a.esami_dubbi || []);
+        const esami = (a.esami || []).filter((e) => !ESAMI_ROUTINE.includes(e) && e !== "CORONAROGRAFIA" && e !== "TC CUORE").map((e) => e + (dubbi.has(e) ? " ?" : ""));
+        if (a.altro) esami.push(a.altro.toUpperCase());
+        righe.push({ quando: `${fmtDay(d, { weekday: "short", day: "numeric", month: "short" })}\n${sl.lp ? "LP " : ""}${sl.label.replace(/^LP · /, "")}`, nome: pazNome(p), lp: pazLP(p, sl.lp),
+          ingresso: a.ingresso ? fmtNum(a.ingresso) : "da definire", esami: esami.join(", ") || "—", cuore: esamiCuore(p).replace(/\s+·\s+/g, "\n") || "—",
+          tel: [a.abit, a.cell1, a.cell2].filter(Boolean).join("\n") || "—", note: p.note || "" });
+      });
+    }
+    const doc = nuovoPdf("landscape");
+    const PW = 297, PH = 210, M = 10, ink = [18, 32, 28], mut = [110, 120, 117], acc = [11, 110, 95];
+    const COL = [["Intervento", 27], ["Paziente", 44], ["Ingresso", 21], ["Accertamenti preoperatori", 62], ["Coro / TAC cuore", 42], ["Telefoni", 36], ["Note", 45]];
+    const titolo = per.titolo.replace(/^RIEPILOGO/, "PIANIFICAZIONE RICOVERO");
+    const testa = (y) => {
+      doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.setTextColor(...ink); doc.text("LISTA OPERATORIA", M, 14);
+      doc.setFontSize(10); doc.setTextColor(...acc); doc.text(pdfSafe(titolo), M, 21);
+      doc.setFillColor(...acc); doc.rect(M, 26, PW - 2 * M, 8, "F"); doc.setFontSize(8.5); doc.setTextColor(255, 255, 255);
+      let x = M; COL.forEach(([t, w]) => { doc.text(t.toUpperCase(), x + 2, 31.3); x += w; });
+      return 34;
+    };
+    let y = testa();
+    doc.setLineWidth(0.2); doc.setDrawColor(190, 200, 197);
+    if (!righe.length) { doc.setFont("helvetica", "italic"); doc.setFontSize(10); doc.setTextColor(...mut); doc.text("Nessun paziente programmato in questo periodo.", M + 2, y + 8); }
+    righe.forEach((r, i) => {
+      doc.setFontSize(8.5);
+      const celle = [r.quando, r.nome, r.ingresso, r.esami, r.cuore, r.tel, r.note].map((t, c) => { doc.setFont("helvetica", c === 1 || c === 4 ? "bold" : "normal"); return doc.splitTextToSize(pdfSafe(t), COL[c][1] - 4 - (c === 1 && r.lp ? 7 : 0)); });
+      const h = Math.max(...celle.map((l) => l.length)) * 3.7 + 3.4;
+      if (y + h > PH - 12) { doc.addPage(); y = testa(); }
+      if (i % 2) { doc.setFillColor(242, 245, 244); doc.rect(M, y, PW - 2 * M, h, "F"); }
+      let x = M;
+      celle.forEach((l, c) => {
+        doc.setFont("helvetica", c === 1 || c === 4 ? "bold" : "normal"); doc.setFontSize(8.5);
+        doc.setTextColor(...(c === 4 ? [30, 84, 160] : c === 2 && r.ingresso === "da definire" ? mut : ink));
+        doc.text(l, x + 2, y + 4.4);
+        if (c === 1 && r.lp) { const w = doc.getTextWidth(l[0]); doc.setTextColor(...ROSSO_LP); doc.text("LP", x + 2 + w + 2, y + 4.4); }
+        x += COL[c][1];
+      });
+      doc.setDrawColor(190, 200, 197); doc.line(M, y + h, PW - M, y + h); y += h;
+    });
+    const n = doc.getNumberOfPages();
+    for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...mut);
+      doc.text(pdfSafe(`Generato il ${new Date().toLocaleString("it-IT")}  ·  Documento riservato: contiene dati personali e sanitari  ·  Pag. ${i}/${n}`), M, PH - 5); }
+    return { data: doc.output("arraybuffer"), file: per.file.replace(/^Riepilogo/, "Pianificazione ricovero") };
+  }
   function reportPdf(kind) {
     const per = periodo(kind);
     const doc = nuovoPdf("landscape");
@@ -3514,10 +3566,10 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
       else if (act === "calv") { if (S.cal !== b.value) { S.cal = b.value; render(); window.scrollTo(0, 0); } }
       else if (act.startsWith("loc-") || act.startsWith("sy-") || act === "go-dati") await azioneLocale(act, b);
       else if (act === "mo") { S.monthOff = b.dataset.d === "0" ? 0 : S.monthOff + Number(b.dataset.d); render(); }
-      else if (act === "rpdf") {
+      else if (act === "rpdf" || act === "rric") {
         if (!S.dl) { toast("Il PDF si può scaricare solo aprendo l'app da claude.ai."); return; }
         let r;
-        try { r = reportPdf(b.dataset.k); } catch { toast("Non riesco a creare il PDF. Ricarica la pagina e riprova."); return; }
+        try { r = act === "rric" ? pianificazionePdf(b.dataset.k) : reportPdf(b.dataset.k); } catch { toast("Non riesco a creare il PDF. Ricarica la pagina e riprova."); return; }
         b.disabled = true;
         try { await salvaFile(r.file, r.data); } finally { b.disabled = false; }
       }
