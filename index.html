@@ -3349,6 +3349,20 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
     if (a.altro) es.push(a.altro.toUpperCase());
     return es.join(", ");
   };
+  // Farmaci da sospendere, dalla tabella della terapia nella scheda: colonna SOSPENSIONE (e note), es. "SÌ – STOP 7 GG PRIMA".
+  // Data di sospensione calcolata dal giorno di ingresso.
+  const farmaciDaSospendere = (p) => {
+    const a = (p?.attesaId && S.attesa[p.attesaId]) || {};
+    return (a.farmaci || []).filter((r) => r && r[0]).map((r) => {
+      const t = `${r[2] || ""} ${r[3] || ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
+      if (!t || /^NO\b/.test(t) || !/^SI\b|STOP|SOSPEN/.test(t)) return null;
+      const g = t.match(/(\d+)\s*(GG|GIORN|G\b)/), h = t.match(/(\d+)\s*(ORE|H\b)/);
+      const giorni = g ? +g[1] : h ? Math.ceil(+h[1] / 24) : null;
+      const quanto = g ? `${g[1]} gg` : h ? `${h[1]} ore` : "";
+      if (!quanto) return `${r[0]} (tempi non indicati)`;
+      return `${r[0]} ${quanto} prima${a.ingresso && giorni != null ? ` (dal ${addDays(parse(a.ingresso), -giorni).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" })})` : " dell'ingresso"}`;
+    }).filter(Boolean);
+  };
   const telefoniRef = (p) => { const a = (p?.attesaId && S.attesa[p.attesaId]) || {}; return [a.abit, a.cell1, a.cell2].filter(Boolean).join(" · "); };
   // ric = Pianificazione ricovero: stessa griglia settimanale, nei riquadri gli accertamenti preoperatori
   function reportPdf(kind, ric = false) {
@@ -3386,6 +3400,7 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
           riga("INGRESSO: " + (ing ? fmtNum(ing) : "da definire"), "bold", ing ? ink : mut, 1);
           riga(esamiPreop(p) ? "ESAMI: " + esamiPreop(p) : "", "normal", ink, 4);
           riga(esamiCuore(p), "bold", [30, 84, 160], 2);
+          { const fs = farmaciDaSospendere(p); riga(fs.length ? "SOSPENDERE: " + fs.join(" · ") : "", "bold", [156, 47, 28], 4); }
           riga(telefoniRef(p) ? "TEL: " + telefoniRef(p) : "", "normal", ink, 2);
           riga(p.note ? "NOTE: " + lines(p.note).join(" · ") : "", "normal", mut, 2);
           if (p.bozza) { txt("BOZZA", x + 3, yy, 7.5, "bold", [156, 47, 28]); yy += 4; }
@@ -3432,7 +3447,7 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
               txt(nome, x + 3, yy, 8, "bold");
               { doc.setFont("helvetica", "bold"); doc.setFontSize(8); const w = doc.getTextWidth(nome[nome.length - 1]); txt("LP", Math.min(x + 3 + w + 2, x + cw - 8), yy + (nome.length - 1) * 3.5, 8, "bold", ROSSO_LP); }
               yy += nome.length * 3.5;
-              const det = wrap([[p.procedura, p.procedura2].filter(Boolean).join(" "), medicoRef(p) ? cognomeMedico(medicoRef(p)) : "", ingressoRef(p) ? "INGRESSO " + fmtNum(ingressoRef(p)) : "", kind === "week" || ric ? esamiCuore(p) : "", ric ? esamiPreop(p) : "", ric ? telefoniRef(p) : ""].filter(Boolean).join(" · "), 7, "normal", cw - 6).slice(0, 3);
+              const det = wrap([[p.procedura, p.procedura2].filter(Boolean).join(" "), medicoRef(p) ? cognomeMedico(medicoRef(p)) : "", ingressoRef(p) ? "INGRESSO " + fmtNum(ingressoRef(p)) : "", kind === "week" || ric ? esamiCuore(p) : "", ric ? esamiPreop(p) : "", ric && farmaciDaSospendere(p).length ? "SOSPENDERE " + farmaciDaSospendere(p).join(", ") : "", ric ? telefoniRef(p) : ""].filter(Boolean).join(" · "), 7, "normal", cw - 6).slice(0, 3);
               txt(det, x + 3, yy, 7, "normal", acc); yy += det.length * 3.1 + 1.6;
             });
           });
