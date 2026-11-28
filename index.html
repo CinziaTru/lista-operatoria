@@ -1645,7 +1645,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
   // Previsione: per ogni giorno, chi occupa un letto di reparto o di TI (letti attuali + ingressi programmati)
   function previsioneLetti(giorni = 7) {
-    const cfg = S.cfgLetti || {}, gTI = +cfg.giorniTI || 0, gRep = +cfg.giorniReparto || 0, t = today0();
+    const { gTI, gRep } = durateLetti(), t = today0();
     const percorsi = []; // per paziente: funzione giorno → "rep" | "ti" | null
     const percorso = (inizioArea, ingresso, interv, uscitaTI, uscita) => (d) => {
       if (ingresso && d < ingresso) return null;
@@ -1678,11 +1678,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <div style="overflow-x:auto"><table class="imp-tab prev-tab"><thead><tr><th>Giorno</th><th>Reparto (su 8)</th><th>TI (su 6)</th></tr></thead><tbody>
         ${prev.map((r) => `<tr><td>${breveData(r.d)}</td>${cella(r.rep, 8, 1)}${cella(r.ti, 6)}</tr>`).join("")}</tbody></table></div>
         <p class="hint" style="margin:0">Calcolata da letti occupati, ingressi programmati (data di ingresso nella scheda), date degli interventi e uscite previste. ${gTIgRep(cfg)}</p>
-        <form class="loc-bar" id="f-durate"><label class="check" style="font-weight:400">Giorni tipici in TI dopo l'intervento <input type="number" min="0" max="60" name="giorniTI" value="${esc(cfg.giorniTI ?? "")}" style="width:70px;min-height:36px;border-radius:8px;border:1px solid var(--line);padding:0 8px"></label>
-          <label class="check" style="font-weight:400">Giorni tipici in reparto dopo la TI <input type="number" min="0" max="60" name="giorniReparto" value="${esc(cfg.giorniReparto ?? "")}" style="width:70px;min-height:36px;border-radius:8px;border:1px solid var(--line);padding:0 8px"></label>
+        <form class="loc-bar" id="f-durate"><label class="check" style="font-weight:400">Giorni tipici in TI dopo l'intervento <input type="number" min="0" max="60" name="giorniTI" value="${durateLetti().gTI}" style="width:70px;min-height:36px;border-radius:8px;border:1px solid var(--line);padding:0 8px"></label>
+          <label class="check" style="font-weight:400">Giorni tipici in reparto dopo la TI <input type="number" min="0" max="60" name="giorniReparto" value="${durateLetti().gRep}" style="width:70px;min-height:36px;border-radius:8px;border:1px solid var(--line);padding:0 8px"></label>
           <button type="button" class="btn small" data-act="letti-durate">Salva</button></form></div>`;
   }
-  const gTIgRep = (cfg) => (cfg.giorniTI || cfg.giorniReparto ? "Per chi non ha un'uscita prevista usa le durate tipiche indicate qui sotto." : "Per chi non ha un'uscita prevista, finché non indichi le durate tipiche qui sotto, il paziente resta nel letto per tutta la previsione.");
+  // Durate tipiche della degenza (indicate dal reparto): 1 giorno in TI dopo l'intervento, poi 4 in reparto; modificabili nella sezione Letti
+  const DURATE_LETTI = { giorniTI: 1, giorniReparto: 4 };
+  const durateLetti = () => { const c = S.cfgLetti || {}, v = (x, d) => (x === "" || x == null ? d : +x); return { gTI: v(c.giorniTI, DURATE_LETTI.giorniTI), gRep: v(c.giorniReparto, DURATE_LETTI.giorniReparto) }; };
+  const gTIgRep = () => "Per chi non ha un'uscita prevista usa le durate tipiche indicate qui sotto.";
 
   async function salvaLetto(id, dati) { if (dati) await S.db.doc("letti/" + id).set({ ...dati, updatedAt: Date.now(), updatedBy: S.uid }); else await S.db.doc("letti/" + id).delete(); }
   // Assegna un letto libero: proposte, qualsiasi paziente in lista, oppure nome a mano
