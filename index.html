@@ -150,7 +150,7 @@ main { max-width: 720px; margin: 0 auto; padding-left: max(16px, env(safe-area-i
 
 .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--surface); border-top: 1px solid var(--line);
   padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); padding-block: 6px calc(6px + env(safe-area-inset-bottom, 0px));
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; }
 .tabs button { min-height: 52px; border: 0; background: none; border-radius: 10px; font-size: var(--fs-sm); font-weight: 700; color: var(--muted); display: grid; place-items: center; gap: 2px; cursor: pointer; }
 .tabs button svg { width: 22px; height: 22px; }
 .tabs button[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
@@ -387,6 +387,20 @@ html, body, button, a, label, input, select, textarea { touch-action: manipulati
 .swap-btn { position: absolute; right: -8px; top: 50%; transform: translateY(-50%); z-index: 2; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); font-size: 1.25rem; font-weight: 700; line-height: 1; cursor: pointer; box-shadow: var(--shadow); display: grid; place-items: center; }
 .coppia.piccola .swap-btn { width: 30px; height: 30px; font-size: 1rem; right: -6px; }
 .swap-btn:active { background: var(--accent-soft); }
+.letti { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.letto { text-align: left; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); padding: 10px; min-height: 96px; display: flex; flex-direction: column; gap: 2px; font: inherit; color: inherit; cursor: pointer; box-shadow: var(--shadow); font-size: var(--fs-sm); }
+.letto b { font-family: var(--f-display); font-size: var(--fs-base); }
+.letto .paz { font-weight: 700; font-size: var(--fs-base); }
+.letto.libero { background: var(--bg); box-shadow: none; border-style: dashed; color: var(--muted); }
+.letto.agg { border-color: var(--warn-fg); }
+.letto.pieno { border-left: 5px solid var(--accent); }
+.letto.in-uscita { border-left-color: var(--warn-fg); }
+.letto .nota { background: var(--warn-bg); color: var(--warn-fg); border-radius: 6px; padding: 1px 6px; align-self: flex-start; }
+.prop-letti { display: grid; gap: 8px; }
+.prop-letti li { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.prev-tab td.prev-full { color: var(--warn-fg); font-weight: 700; }
+.prev-tab td.prev-over { color: var(--bad-fg); font-weight: 700; background: var(--bad-bg); }
+.tabs button { font-size: .75rem; }
 .pill.fest { background: var(--idle-bg); color: var(--idle-fg); }
 .pill.fest::before { display: none; }
 .day-fest { opacity: .75; }
@@ -419,6 +433,7 @@ html, body, button, a, label, input, select, textarea { touch-action: manipulati
   <button data-tab="oggi" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Oggi e domani</button>
   <button data-tab="settimana"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span id="cal-lbl">Settimana</span></button>
   <button data-tab="attesa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Lista d'attesa</button>
+  <button data-tab="letti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 18V7M3 14h18v4M21 14v-2a3 3 0 0 0-3-3h-7v5"/><circle cx="7" cy="11" r="2"/></svg>Letti</button>
   <button data-tab="info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Dati</button>
 </nav>
 
@@ -1201,7 +1216,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       return;
     }
     if (S.tab === "attesa" && document.activeElement?.id === "wl-q" && $("#wl-list")) { $("#wl-list").innerHTML = wlListHtml(); return; }
-    app.innerHTML = { oggi: viewOggi, settimana: viewCal, attesa: viewAttesa, info: viewInfo }[S.tab]();
+    app.innerHTML = { oggi: viewOggi, settimana: viewCal, attesa: viewAttesa, letti: viewLetti, info: viewInfo }[S.tab]();
     fillNames();
   }
 
@@ -1590,6 +1605,140 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         ${Object.entries(WL_SORT).map(([k, v]) => `<button data-act="wls" data-s="${k}" aria-pressed="${S.wlSort === k}">${v.lbl}</button>`).join("")}
       </div>
       <div id="wl-list" class="wl-wrap">${wlListHtml()}</div>`;
+  }
+
+  // ---------- Letti: reparto (8 + 2 aggiuntivi) e terapia intensiva (6) ----------
+  // Ogni letto è un documento letti/<id>; letto libero = documento assente. Dati: paziente, ingresso, intervento, uscita prevista, note.
+  const LETTI = [
+    ...Array.from({ length: 8 }, (_, i) => ({ id: "R" + (i + 1), area: "rep", nome: `Letto ${i + 1}` })),
+    { id: "RA1", area: "rep", agg: true, nome: "Aggiuntivo 1" }, { id: "RA2", area: "rep", agg: true, nome: "Aggiuntivo 2" },
+    ...Array.from({ length: 6 }, (_, i) => ({ id: "T" + (i + 1), area: "ti", nome: `TI ${i + 1}` })),
+  ];
+  const lettoDi = (id) => LETTI.find((l) => l.id === id);
+  const occ = (id) => S.letti?.[id] || null;
+  const dataInterv = (b) => (b?.attesaId && (S.attesa[b.attesaId]?.dataProgrammata || S.attesa[b.attesaId]?.dataEsecuzione)) || b?.intervento || "";
+  const giornataPO = (b) => {
+    const d = dataInterv(b), t = ymd(today0()); if (!d) return "";
+    if (d > t) return `pre-operatorio · intervento ${fmtDay(d, { weekday: "short", day: "numeric", month: "short" })}`;
+    const n = daysBetween(d, t); return n === 0 ? "giorno dell'intervento" : `${n}ª giornata post-operatoria`;
+  };
+  const inLetto = (attesaId) => LETTI.find((l) => occ(l.id)?.attesaId === attesaId);
+  const breveData = (d) => fmtDay(d, { weekday: "short", day: "numeric", month: "short" });
+
+  function lettoCard(l) {
+    const b = occ(l.id);
+    if (!b) return `<button type="button" class="letto libero${l.agg ? " agg" : ""}" data-act="letto" data-letto="${l.id}"><b>${l.nome}</b><span class="muted">Libero</span></button>`;
+    const fin = b.uscita ? `<span>${l.area === "ti" ? "Trasferimento previsto" : "Uscita prevista"}: <strong>${breveData(b.uscita)}</strong></span>` : "";
+    return `<button type="button" class="letto pieno${l.agg ? " agg" : ""}${b.uscita && b.uscita <= ymd(today0()) ? " in-uscita" : ""}" data-act="letto" data-letto="${l.id}">
+      <b>${l.nome}</b><span class="paz">${esc(pazNome(b))}${b.attesaId && S.attesa[b.attesaId]?.regime === "SOLV" ? `<span class="lp-tag">LP</span>` : ""}</span>
+      <span>${esc(b.procedura || "")}</span><span class="muted">${b.ingresso ? "Ingresso " + breveData(b.ingresso) : ""}${giornataPO(b) ? " · " + giornataPO(b) : ""}</span>${fin}${b.note ? `<span class="nota">${esc(b.note)}</span>` : ""}</button>`;
+  }
+  // Proposte: ingressi del giorno (o passati) senza letto; operati oggi che sono ancora in un letto di reparto
+  function proposteLetti() {
+    const t = ymd(today0()), out = [];
+    Object.entries(S.attesa).filter(([id, a]) => a.ingresso && a.ingresso <= t && a.stato !== "eseguito" && !inLetto(id) && !(a.ingresso < t && a.dataProgrammata && a.dataProgrammata < t))
+      .sort((x, y) => x[1].ingresso.localeCompare(y[1].ingresso))
+      .forEach(([id, a]) => out.push(`<li><strong>${esc(pazNome(a))}</strong> · ingresso ${breveData(a.ingresso)}${a.dataProgrammata ? ` · intervento ${breveData(a.dataProgrammata)}` : ""} <button type="button" class="btn small" data-act="letto-assegna" data-paz="${esc(id)}" data-area="rep">Assegna letto di reparto</button></li>`));
+    LETTI.filter((l) => l.area === "rep" && occ(l.id)).forEach((l) => { const b = occ(l.id), d = dataInterv(b);
+      if (d && d === t) out.push(`<li><strong>${esc(pazNome(b))}</strong> · ${l.nome} · operato oggi <button type="button" class="btn small" data-act="letto-sposta" data-letto="${l.id}" data-area="ti">Porta in TI</button></li>`); });
+    return out;
+  }
+  // Previsione: per ogni giorno, chi occupa un letto di reparto o di TI (letti attuali + ingressi programmati)
+  function previsioneLetti(giorni = 7) {
+    const cfg = S.cfgLetti || {}, gTI = +cfg.giorniTI || 0, gRep = +cfg.giorniReparto || 0, t = today0();
+    const percorsi = []; // per paziente: funzione giorno → "rep" | "ti" | null
+    const percorso = (inizioArea, ingresso, interv, uscitaTI, uscita) => (d) => {
+      if (ingresso && d < ingresso) return null;
+      if (interv && d >= interv) {
+        const fineTI = uscitaTI || (gTI ? ymd(addDays(parse(interv), gTI)) : "");
+        if (!fineTI || d < fineTI) return "ti";
+        const fineRep = uscita || (gRep ? ymd(addDays(parse(fineTI), gRep)) : "");
+        return !fineRep || d < fineRep ? "rep" : null;
+      }
+      if (uscita && d >= uscita && inizioArea === "rep") return null;
+      return inizioArea;
+    };
+    LETTI.forEach((l) => { const b = occ(l.id); if (!b) return; const iv = dataInterv(b);
+      if (l.area === "ti") percorsi.push(percorso("ti", "", iv || ymd(t), b.uscita, ""));
+      else if (iv && iv > ymd(t)) percorsi.push(percorso("rep", "", iv, "", b.uscita));
+      else { const fine = b.uscita || (iv && gRep ? ymd(addDays(parse(iv), gTI + gRep)) : ""); percorsi.push((d) => (fine && d >= fine ? null : "rep")); } });
+    Object.entries(S.attesa).forEach(([id, a]) => { if (!a.ingresso || a.stato === "eseguito" || inLetto(id) || a.ingresso < ymd(t)) return; percorsi.push(percorso("rep", a.ingresso, a.dataProgrammata || "", "", "")); });
+    return Array.from({ length: giorni }, (_, i) => { const d = ymd(addDays(t, i)); let rep = 0, ti = 0; percorsi.forEach((f) => { const z = f(d); if (z === "rep") rep++; else if (z === "ti") ti++; }); return { d, rep, ti }; });
+  }
+  function viewLetti() {
+    const nRep = LETTI.filter((l) => l.area === "rep" && !l.agg && occ(l.id)).length, nAgg = LETTI.filter((l) => l.agg && occ(l.id)).length, nTI = LETTI.filter((l) => l.area === "ti" && occ(l.id)).length;
+    const prop = proposteLetti(), prev = previsioneLetti(), cfg = S.cfgLetti || {};
+    const cella = (n, tot, extra = 0) => `<td class="${n > tot ? "prev-over" : n === tot ? "prev-full" : ""}">${n} / ${tot}${n > tot ? ` <small>(+${n - tot}${extra ? " aggiunt." : ""})</small>` : ""}</td>`;
+    return `<div class="sec-head"><h2>Letti</h2><span class="muted">Reparto ${nRep}/8${nAgg ? ` · aggiuntivi ${nAgg}/2` : ""} · TI ${nTI}/6</span></div>
+      ${prop.length ? `<div class="card"><h3>Da sistemare</h3><ul class="prop-letti">${prop.join("")}</ul></div>` : ""}
+      <section class="day"><div class="day-head"><h3>Reparto</h3></div><div class="letti">${LETTI.filter((l) => l.area === "rep" && !l.agg).map(lettoCard).join("")}</div>
+        <div class="day-head"><h3 style="font-size:var(--fs-base)">Letti aggiuntivi</h3>${nAgg ? `<span class="pill flag">In uso: ${nAgg}</span>` : ""}</div><div class="letti">${LETTI.filter((l) => l.agg).map(lettoCard).join("")}</div></section>
+      <section class="day"><div class="day-head"><h3>Terapia intensiva</h3></div><div class="letti">${LETTI.filter((l) => l.area === "ti").map(lettoCard).join("")}</div></section>
+      <div class="card"><h3>Previsione prossimi 7 giorni</h3>
+        <div style="overflow-x:auto"><table class="imp-tab prev-tab"><thead><tr><th>Giorno</th><th>Reparto (su 8)</th><th>TI (su 6)</th></tr></thead><tbody>
+        ${prev.map((r) => `<tr><td>${breveData(r.d)}</td>${cella(r.rep, 8, 1)}${cella(r.ti, 6)}</tr>`).join("")}</tbody></table></div>
+        <p class="hint" style="margin:0">Calcolata da letti occupati, ingressi programmati (data di ingresso nella scheda), date degli interventi e uscite previste. ${gTIgRep(cfg)}</p>
+        <form class="loc-bar" id="f-durate"><label class="check" style="font-weight:400">Giorni tipici in TI dopo l'intervento <input type="number" min="0" max="60" name="giorniTI" value="${esc(cfg.giorniTI ?? "")}" style="width:70px;min-height:36px;border-radius:8px;border:1px solid var(--line);padding:0 8px"></label>
+          <label class="check" style="font-weight:400">Giorni tipici in reparto dopo la TI <input type="number" min="0" max="60" name="giorniReparto" value="${esc(cfg.giorniReparto ?? "")}" style="width:70px;min-height:36px;border-radius:8px;border:1px solid var(--line);padding:0 8px"></label>
+          <button type="button" class="btn small" data-act="letti-durate">Salva</button></form></div>`;
+  }
+  const gTIgRep = (cfg) => (cfg.giorniTI || cfg.giorniReparto ? "Per chi non ha un'uscita prevista usa le durate tipiche indicate qui sotto." : "Per chi non ha un'uscita prevista, finché non indichi le durate tipiche qui sotto, il paziente resta nel letto per tutta la previsione.");
+
+  async function salvaLetto(id, dati) { if (dati) await S.db.doc("letti/" + id).set({ ...dati, updatedAt: Date.now(), updatedBy: S.uid }); else await S.db.doc("letti/" + id).delete(); }
+  // Assegna un letto libero: proposte, qualsiasi paziente in lista, oppure nome a mano
+  function sheetAssegna(lid, attesaPre = "") {
+    const l = lettoDi(lid);
+    const candidati = Object.entries(S.attesa).filter(([id, a]) => a.stato !== "eseguito" && !inLetto(id))
+      .sort((x, y) => (x[1].ingresso || "9999").localeCompare(y[1].ingresso || "9999") || pazNome(x[1]).localeCompare(pazNome(y[1])));
+    openSheet(`<form><h2>${l.nome}</h2><p class="sub">${l.area === "ti" ? "Terapia intensiva" : l.agg ? "Reparto · letto aggiuntivo" : "Reparto"}</p>
+      <div class="field"><label for="lt-paz">Paziente</label><select id="lt-paz" name="paz"><option value="">— Scegli dalla lista —</option>
+        ${candidati.map(([id, a]) => `<option value="${esc(id)}" ${id === attesaPre ? "selected" : ""}>${esc(pazNome(a))}${a.ingresso ? " · ingresso " + esc(fmtNum(a.ingresso)) : ""}${a.dataProgrammata ? " · intervento " + esc(fmtNum(a.dataProgrammata)) : ""}</option>`).join("")}
+        <option value="__a_mano">Altro paziente (scrivo il nome)</option></select></div>
+      <div class="grid2" id="lt-mano" hidden>${field("cognome", "Cognome", "", 'autocomplete="off"')}${field("nome", "Nome", "", 'autocomplete="off"')}</div>
+      ${campoData("uscita", l.area === "ti" ? "Trasferimento previsto" : "Uscita prevista", "")}
+      <div class="field"><label for="lt-note">Note del letto</label><textarea id="lt-note" name="note" rows="2"></textarea></div>
+      <p class="req-msg hint"></p><div class="bar"><span class="spacer"></span><button type="button" class="btn" data-cancel>Annulla</button><button type="submit" class="btn primary">Assegna</button></div></form>`,
+    async (fd, form) => {
+      const pid = fd.get("paz"), t = ymd(today0());
+      let dati;
+      if (pid && pid !== "__a_mano") { const a = S.attesa[pid]; dati = { attesaId: pid, cognome: a.cognome || "", nome: a.nome || "", procedura: a.procedura || "", ingresso: a.ingresso && a.ingresso <= t ? a.ingresso : t }; }
+      else { const c = String(fd.get("cognome") || "").trim().toUpperCase(); if (!c) { $(".req-msg", form).textContent = "Scegli il paziente o scrivi il cognome."; throw { code: "silent" }; } dati = { cognome: c, nome: String(fd.get("nome") || "").trim().toUpperCase(), procedura: "", ingresso: t }; }
+      await salvaLetto(lid, { ...dati, uscita: fd.get("uscita") || "", note: String(fd.get("note") || "").trim().toUpperCase(), dal: t });
+      toast(`${pazNome(dati)} → ${l.nome}`);
+    }, (form) => { $("#lt-paz", form).addEventListener("change", (e) => { $("#lt-mano", form).hidden = e.target.value !== "__a_mano"; }); });
+  }
+  // Letto occupato: uscita prevista, note, sposta in un altro letto, dimetti
+  function sheetLetto(lid) {
+    const l = lettoDi(lid), b = occ(lid);
+    if (!b) return sheetAssegna(lid);
+    const liberi = (area) => LETTI.filter((x) => !occ(x.id) && (!area || x.area === area));
+    openSheet(`<form><h2>${l.nome} · ${esc(pazNome(b))}</h2><p class="sub">${esc(b.procedura || "")}${b.ingresso ? " · ingresso " + esc(fmtNum(b.ingresso)) : ""}${giornataPO(b) ? " · " + esc(giornataPO(b)) : ""}</p>
+      ${campoData("uscita", l.area === "ti" ? "Trasferimento previsto" : "Uscita prevista", b.uscita || "")}
+      <div class="field"><label for="lt-note">Note del letto</label><textarea id="lt-note" name="note" rows="2">${esc(b.note || "")}</textarea></div>
+      <div class="prog-pan"><strong>Sposta in un altro letto</strong>
+        <div class="field"><label for="lt-dest">Letto</label><select id="lt-dest"><option value="">— Scegli —</option>
+          ${["ti", "rep"].map((ar) => `<optgroup label="${ar === "ti" ? "Terapia intensiva" : "Reparto"}">${liberi(ar).map((x) => `<option value="${x.id}">${x.nome}</option>`).join("")}</optgroup>`).join("")}</select></div>
+        <div class="loc-bar"><button type="button" class="btn" id="lt-sposta">Sposta</button></div></div>
+      <div class="bar"><button type="button" class="btn danger" id="lt-dimetti">${l.area === "ti" ? "Libera il letto" : "Dimetti"}</button><span class="spacer"></span><button type="button" class="btn" data-cancel>Chiudi</button><button type="submit" class="btn primary">Salva</button></div></form>`,
+    async (fd) => { await salvaLetto(lid, { ...b, uscita: fd.get("uscita") || "", note: String(fd.get("note") || "").trim().toUpperCase() }); toast("Letto aggiornato"); },
+    (form) => {
+      $("#lt-sposta", form).addEventListener("click", async () => {
+        const dest = $("#lt-dest", form).value; if (!dest) { toast("Scegli il letto di destinazione"); return; }
+        const fd = new FormData(form), t = ymd(today0());
+        await salvaLetto(dest, { ...b, uscita: lettoDi(dest).area === l.area ? fd.get("uscita") || "" : "", note: String(fd.get("note") || "").trim().toUpperCase(), dal: t });
+        await salvaLetto(lid, null); closeSheet(); toast(`${pazNome(b)} → ${lettoDi(dest).nome}`);
+      });
+      const dm = $("#lt-dimetti", form);
+      dm.addEventListener("click", async () => {
+        if (dm.dataset.armed !== "1") { dm.dataset.armed = "1"; dm.textContent = "Tocca di nuovo per confermare"; return; }
+        await salvaLetto(lid, null); closeSheet(); toast(`${l.nome} libero`);
+      });
+    });
+  }
+  // "Porta in TI" dalle proposte: primo letto di TI libero (si può cambiare poi con Sposta)
+  async function portaIn(lid, area) {
+    const dest = LETTI.find((x) => x.area === area && !occ(x.id)); if (!dest) { toast(area === "ti" ? "Terapia intensiva piena" : "Nessun letto libero"); return; }
+    const b = occ(lid); await salvaLetto(dest.id, { ...b, uscita: "", dal: ymd(today0()) }); await salvaLetto(lid, null); toast(`${pazNome(b)} → ${dest.nome}`);
   }
 
   // ---------- versione locale: dati e backup, foto del modulo, testo incollato ----------
@@ -3662,6 +3811,10 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
     const { act, date, slot } = b.dataset;
     try {
       if (act === "prog") sheetProgramma(date, slot);
+      else if (act === "letto") sheetLetto(b.dataset.letto);
+      else if (act === "letto-assegna") { const l = LETTI.find((x) => x.area === b.dataset.area && !x.agg && !occ(x.id)) || LETTI.find((x) => x.agg && !occ(x.id)); if (!l) { toast("Reparto pieno, anche gli aggiuntivi"); return; } sheetAssegna(l.id, b.dataset.paz); }
+      else if (act === "letto-sposta") await portaIn(b.dataset.letto, b.dataset.area);
+      else if (act === "letti-durate") { const f = $("#f-durate"); await S.db.doc("config/letti").set({ giorniTI: f.giorniTI.value === "" ? "" : +f.giorniTI.value, giorniReparto: f.giorniReparto.value === "" ? "" : +f.giorniReparto.value }); toast("Durate tipiche salvate"); }
       else if (act === "swap") { await invertiSlot(date); toast("1° e 2° intervento invertiti"); }
       else if (act === "cchped") { await saveSlot(date, slot, { cchped: true }); toast(`Slot riservato a ${CCHPED}`); }
       else if (act === "exec") sheetEsecuzione(date, slot);
@@ -3753,6 +3906,8 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
     let pending = 3;
     const toMap = (snap) => Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
     const lost = () => toast("Collegamento alla lista interrotto. Ricarica la pagina.");
+    db.collection("letti").onSnapshot((s) => { S.letti = toMap(s); if (S.ready) render(); });
+    db.doc("config/letti").onSnapshot((d) => { S.cfgLetti = d.exists ? d.data() : {}; if (S.ready && S.tab === "letti") render(); });
     ["programma", "esecuzione", "attesa"].forEach((k) => db.collection(k).onSnapshot((s) => {
       S[k] = toMap(s);
       if (first[k]) { first[k] = 0; if (--pending === 0) { S.ready = true; setTimeout(correggiChirurghi, 500); setTimeout(correggiEsamiCuore, 900); } }
