@@ -366,6 +366,10 @@ button.wl-item { cursor: pointer; }
 .cal-grid button { min-height: 40px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
 .cal-grid button:hover { background: var(--accent-soft); }
 .cal-grid button.oggi { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cal-grid button:disabled { color: var(--muted); opacity: .35; cursor: default; background: transparent; }
+.prog-box { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--accent-soft); border-radius: var(--r); padding: 10px 12px; }
+.prog-box .txt { flex: 1 1 200px; }
+.prog-pan { display: grid; gap: 10px; border: 1px solid var(--line); border-radius: var(--r); padding: 12px; }
 .cal-grid button.sel { background: var(--accent); color: var(--on-accent); }
 .cal-foot { display: flex; justify-content: space-between; margin-top: 6px; }
 .seg.seg-sm label span { min-height: 36px; padding: 0 14px; }
@@ -2593,7 +2597,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       </fieldset>
       <div class="field"><label for="note">Note <span class="opt">(compaiono nel riepilogo del giorno)</span></label><textarea id="note" name="note">${esc(p.note)}</textarea>
         <div class="note-sugg" id="p-note-sugg" hidden></div></div>
-      ${saveBar(S.programma[date]?.slots?.[k] ? `<button type="button" class="btn danger" id="p-clear">Libera lo slot</button>` : "")}
+      ${S.programma[date]?.slots?.[k] ? `<div class="prog-pan" id="sp-pan" hidden><strong>Sposta in un'altra seduta</strong>
+        ${campoData("sp_data", "Nuova seduta", "", false, true)}
+        <div class="field"><label for="sp-slot">Slot</label><select id="sp-slot"><option value="">Scegli prima la seduta</option></select></div>
+        <p class="hint" id="sp-msg" aria-live="polite" style="margin:0"></p>
+        <div class="loc-bar"><button type="button" class="btn primary" id="sp-go">Sposta qui</button><button type="button" class="btn" id="sp-annulla">Annulla</button></div></div>` : ""}
+      ${saveBar(S.programma[date]?.slots?.[k] ? `<button type="button" class="btn danger" id="p-clear">Libera lo slot</button><button type="button" class="btn" id="p-sposta">Sposta</button>` : "")}
     </form>`, async (fd, form, bozza) => {
       let chir = fd.getAll("chir").map((v) => v.trim());
       while (chir.length && !chir[chir.length - 1]) chir.pop();
@@ -2693,6 +2702,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         add.insertAdjacentHTML("beforebegin", chirRow(3));
         add.hidden = true; $("#chir-3", form).focus();
       });
+      const spb = $("#p-sposta", form), spPan = $("#sp-pan", form);
+      if (spb) {
+        spb.addEventListener("click", () => { spPan.hidden = false; spPan.scrollIntoView({ block: "nearest" }); });
+        $("#sp-annulla", form).addEventListener("click", () => { spPan.hidden = true; });
+        $("#sp_data", form).addEventListener("input", (e) => {
+          const nd = e.target.value; $("#sp-slot", form).innerHTML = opzioniSlot(nd, true) || `<option value="">Nessuno slot libero</option>`;
+          $("#sp-msg", form).textContent = nd ? "" : "Scegli la nuova seduta.";
+        });
+        $("#sp-go", form).addEventListener("click", async () => {
+          const nd = $("#sp_data", form).value, nk = $("#sp-slot", form).value;
+          if (!nd || !nk) { $("#sp-msg", form).textContent = "Scegli la nuova seduta e lo slot."; return; }
+          try { await spostaSlot(date, k, nd, nk); closeSheet(); toast(`Spostato a ${fmtDay(nd, { weekday: "short", day: "numeric", month: "short" })} · ${findSlot(nd, nk).label}`); }
+          catch (e) { toast(writeError(e)); }
+        });
+      }
       const clr = $("#p-clear", form);
       clr && clr.addEventListener("click", async () => {
         if (clr.dataset.armed !== "1") { clr.dataset.armed = "1"; clr.textContent = "Tocca di nuovo per liberare"; return; }
@@ -2722,6 +2746,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
+  // Slot liberi di un giorno (per un paziente LP anche quelli delle sale LP)
+  const slotLiberi = (d, conLP = true) => (d ? [...SLOTS, ...(conLP ? lpSlotsDi(d) : [])].filter((x) => !S.programma[d]?.slots?.[x.k]) : []);
+  const opzioniSlot = (d, conLP) => slotLiberi(d, conLP).map((x) => `<option value="${x.k}">${x.label} · ${esc(x.ora)}${x.sala ? " · " + esc(x.sala) : ""}</option>`).join("");
+  // Sposta un intervento in un altro slot: si porta dietro i dati dello slot e quelli di sala, se ci sono
+  async function spostaSlot(date, k, nd, nk) {
+    const dati = clone(S.programma[date]?.slots?.[k]); if (!dati) return;
+    const ex = S.esecuzione[date]?.[k];
+    await saveSlot(date, k, null);
+    await saveSlot(nd, nk, dati);
+    if (ex) {
+      const via = clone(S.esecuzione[date]); delete via[k]; via.updatedAt = Date.now(); via.updatedBy = S.uid; await S.db.doc("esecuzione/" + date).set(via);
+      const qui = clone(S.esecuzione[nd] || {}); qui[nk] = ex; qui.updatedAt = Date.now(); qui.updatedBy = S.uid; await S.db.doc("esecuzione/" + nd).set(qui);
+    }
+  }
   async function saveSlot(date, k, data) {
     const cur = clone(S.programma[date] || { data: date, straordinaria: parse(date).getDay() === 6, slots: {} });
     cur.slots = cur.slots || {};
@@ -2771,7 +2809,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   // ---------- scheda paziente completa (modello del modulo di prenotazione ricovero) ----------
   // Campo data con il calendario dell'app (dal mese corrente in avanti); il valore sta nel campo nascosto name
   const ICONA_CAL = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>`;
-  const campoData = (name, label, val, off = false) => `<div class="field cal-field${off ? " cal-off" : ""}" data-cal="${name}"><label for="${name}-txt">${label}</label>
+  const campoData = (name, label, val, off = false, sedute = false) => `<div class="field cal-field${off ? " cal-off" : ""}" data-cal="${name}"${sedute ? ' data-sedute="1"' : ""}><label for="${name}-txt">${label}</label>
       <div class="cal-in"><input id="${name}-txt" class="cal-txt" readonly value="${val ? fmtNum(val) : ""}" placeholder="gg/mm/aaaa">
       <button type="button" class="icon-btn cal-btn" aria-label="Apri il calendario" aria-expanded="false">${ICONA_CAL}</button></div>
       <input type="hidden" id="${name}" name="${name}" value="${esc(val || "")}"><div class="cal-pan" hidden></div></div>`;
@@ -3183,6 +3221,15 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
   };
 
 
+  // Riquadro in cima alla scheda: dove è programmato il paziente, oppure il tasto per inserirlo
+  const progBox = (a) => a.stato === "programmato" && a.dataProgrammata
+    ? `<div class="prog-box"><span class="txt">In programma operatorio: <strong>${fmtDay(a.dataProgrammata, { weekday: "long", day: "numeric", month: "long" })} · ${esc(findSlot(a.dataProgrammata, a.slot).label)}</strong></span>
+        <button type="button" class="btn small danger" id="pg-rimuovi">Rimuovi dal programma operatorio</button></div>`
+    : `<button type="button" class="btn primary" id="pg-apri">Inserimento in programma operatorio</button>
+      <div class="prog-pan" id="pg-pan" hidden>${campoData("pg_data", "Seduta del", "", false, true)}
+        <div class="field"><label for="pg-slot">Slot</label><select id="pg-slot"><option value="">Scegli prima la seduta</option></select></div>
+        <p class="hint" id="pg-msg" aria-live="polite" style="margin:0"></p>
+        <div class="loc-bar"><button type="button" class="btn primary" id="pg-go">Inserisci in questa seduta</button><button type="button" class="btn" id="pg-chiudi">Annulla</button></div></div>`;
   function sheetAttesa(id, pre = null) {
     const a = id ? S.attesa[id] : pre ? { ...pre, inserito: pre.inserito || ymd(today0()), stato: "attesa" } : { classe: "C", inserito: ymd(today0()), stato: "attesa" };
     const linked = a.stato === "programmato" && !!a.dataProgrammata;
@@ -3190,6 +3237,7 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
       ${inRevisione(id) ? `<div class="banner info rev-bar"><p><strong>Revisione bozze: ${S.revPos + 1} di ${S.revisione.length}</strong> · completa e premi Conferma, oppure salta alla prossima.</p><button type="button" class="btn small" id="rev-salta">Salta →</button></div>` : ""}
       <h2>${id ? "Modifica paziente" : "Nuovo paziente in lista"}</h2>
       ${strumentiScheda()}
+      ${id && a.stato !== "eseguito" ? `<div id="pg-box">${progBox(a)}</div>` : ""}
       ${pre ? `<div class="banner warn"><p><strong>Dati letti dalla foto.</strong> Controlla ogni campo con la scheda cartacea prima di confermare.${pre._incerti.length ? ` <strong>Lettura incerta:</strong> ${pre._incerti.map((k) => SCAN_FIELDS[k][0]).join(", ")}.` : ""}${pre.verifica ? ` Vedi anche <strong>Da verificare</strong>.` : ""}</p></div>
         ${pre._duplicato ? `<div class="banner warn"><p><strong>Possibile duplicato:</strong> in lista c'è già ${esc(pre._duplicato)}. Se è lo stesso paziente, unisci i dati nella scheda esistente invece di salvarne una nuova.</p></div>` : ""}` : ""}
       ${schedaFields(a)}
@@ -3199,11 +3247,7 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
           <label><input type="radio" name="stato" value="eseguito" ${a.stato === "eseguito" ? "checked" : ""}><span>Intervento già eseguito</span></label>
         </div></div>
         ${field("dataEsecuzione", "Eseguito il", a.dataEsecuzione, 'type="date" data-req="Data di esecuzione" data-req-when="eseguito"')}
-        ${id && a.stato !== "eseguito" ? `<fieldset class="chir-box"><legend>Inserisci in programmazione</legend>
-          <div class="grid2"><div class="field"><label for="pg-date">Seduta del</label><input type="date" id="pg-date" min="${ymd(today0())}"></div>
-          <div class="field"><label for="pg-slot">Slot</label><select id="pg-slot">${SLOTS.map((x) => `<option value="${x.k}">${x.label} · ${x.ora}</option>`).join("")}</select></div></div>
-          <p class="hint" id="pg-msg" aria-live="polite"></p>
-          <button type="button" class="btn" id="pg-go">Programma in questo slot</button></fieldset>` : ""}`}
+`}
       ${saveBar(id ? `<button type="button" class="btn danger" id="wl-del">Elimina</button><button type="button" class="btn" id="wl-doc">Scheda Word</button>` : "")}
     </form>`, async (fd, form, bozza) => {
       const ch = String(fd.get("medico") || "").trim();
@@ -3213,9 +3257,10 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
       const ing = fd.get("ingresso"), mod = fd.get("visita") || fd.get("inserito");
       if (ing && mod && ing <= mod && !fd.get("urgente")) { $(".req-msg", form).textContent = `Data di ingresso ${fmtNum(ing)}: deve essere dopo la data del modulo (${fmtNum(mod)}), che è il giorno dell'inserimento in lista, non del ricovero.`; throw { code: "silent" }; }
       // il campo "preventivo" (modulo Preventivi LP) resta perché si parte dalla scheda intera: non ricostruirla campo per campo
-      const body = { ...(id ? clone(a) : { stato: "attesa", dataProgrammata: null, slot: null }), ...readScheda(new FormData(form), form), bozza, updatedAt: Date.now(), updatedBy: S.uid };
+      const ora = (id && S.attesa[id]) || a, linkedOra = ora.stato === "programmato" && !!ora.dataProgrammata;
+      const body = { ...(id ? clone(ora) : { stato: "attesa", dataProgrammata: null, slot: null }), ...readScheda(new FormData(form), form), bozza, updatedAt: Date.now(), updatedBy: S.uid };
       if (a?.medico && a.medico !== body.medico && !a.medico_orig) body.medico_orig = a.medico;
-      if (!linked) { body.stato = fd.get("stato") || "attesa"; body.dataEsecuzione = body.stato === "eseguito" ? fd.get("dataEsecuzione") || null : null; }
+      if (!linkedOra) { body.stato = fd.get("stato") === "eseguito" ? "eseguito" : "attesa"; body.dataEsecuzione = body.stato === "eseguito" ? fd.get("dataEsecuzione") || null : null; }
       if (id) await S.db.doc("attesa/" + id).set(body); else await S.db.collection("attesa").add(body);
       toast(bozza ? "Bozza salvata" : id ? "Paziente aggiornato" : "Paziente aggiunto");
       if (inRevisione(id)) { S.revPos++; setTimeout(prossimaRevisione, 250); }
@@ -3226,28 +3271,39 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
         const f = node?.closest(".field"); if (f) { f.classList.add("uncertain"); const d = f.closest("details"); if (d) d.open = true; }
       });
       mountScheda(form, check); montaLocale(form, check);
-      const pgd = $("#pg-date", form);
-      pgd && pgd.addEventListener("change", () => {
-        const d = pgd.value; if (!d) return;
-        const lista = [...SLOTS, ...(isSolvente(a) ? lpSlotsDi(d) : [])];
-        $("#pg-slot", form).innerHTML = lista.map((x) => `<option value="${x.k}">${x.label} · ${esc(x.ora)}${x.sala ? " · " + esc(x.sala) : ""}</option>`).join("");
-        $("#pg-msg", form).textContent = isSolvente(a) && !lpSlotsDi(d).length ? "Quel giorno non ci sono sale LP: il paziente va nella sala ordinaria o aggiungi una sala LP dalla Settimana." : "";
-      });
-      const go = $("#pg-go", form);
-      go && go.addEventListener("click", async () => {
-        const d = $("#pg-date", form).value, k = $("#pg-slot", form).value, msg = $("#pg-msg", form);
-        const w = d ? parse(d).getDay() : -1;
-        if (!d) { msg.textContent = "Scegli la data della seduta."; return; }
-        if (festivo(d)) { msg.textContent = `Il ${fmtNum(d)} è festivo (${festivo(d)}): niente programmazione elettiva.`; return; }
-        if (w === 0 || (w === 6 && !S.programma[d]?.straordinaria)) { msg.textContent = w === 0 ? "La domenica non ci sono sedute." : "Questo sabato non ha una seduta straordinaria: aggiungila prima dalla Settimana."; return; }
-        if (!slotsDi(d).some((x) => x.k === k)) { msg.textContent = "Slot non disponibile in quel giorno: scegli di nuovo."; return; }
-        if (S.programma[d]?.slots?.[k]) { msg.textContent = `Lo slot è già occupato da ${pazNome(S.programma[d].slots[k])}.`; return; }
-        try {
-          await saveSlot(d, k, { attesaId: id, cognome: a.cognome || "", nome: a.nome || "", nascita: a.nascita || "", codice: a.codice || "", accesso: a.accesso || "",
-            procedura: a.procedura || "", chirurghi: a.chirurgo ? [a.chirurgo] : [], note: a.note || "", bozza: true });
-          closeSheet(); toast(`${pazNome(a)} programmato ${fmtDay(d, { weekday: "short", day: "numeric", month: "short" })}`);
-        } catch (e) { toast(writeError(e)); }
-      });
+      const box = $("#pg-box", form);
+      const montaBox = () => {
+        const cur = S.attesa[id] || a, conLP = isSolvente(cur);
+        box.innerHTML = progBox(cur);
+        const apri = $("#pg-apri", box);
+        if (apri) {
+          apri.addEventListener("click", () => { $("#pg-pan", box).hidden = false; apri.hidden = true; });
+          $("#pg-chiudi", box).addEventListener("click", () => { $("#pg-pan", box).hidden = true; apri.hidden = false; });
+          $("#pg_data", box).addEventListener("input", (e) => {
+            const d = e.target.value;
+            $("#pg-slot", box).innerHTML = opzioniSlot(d, conLP) || `<option value="">Nessuno slot libero</option>`;
+            $("#pg-msg", box).textContent = d && conLP && !lpSlotsDi(d).length ? "Quel giorno non ci sono sale LP: il paziente va nella sala ordinaria o aggiungi una sala LP dalla Settimana." : "";
+          });
+          $("#pg-go", box).addEventListener("click", async () => {
+            const d = $("#pg_data", box).value, k = $("#pg-slot", box).value, msg = $("#pg-msg", box);
+            if (!d || !k) { msg.textContent = "Scegli la seduta e lo slot."; return; }
+            try {
+              // entra come bozza; le note della scheda NON si copiano (si scelgono aprendo lo slot)
+              await saveSlot(d, k, { attesaId: id, cognome: cur.cognome || "", nome: cur.nome || "", nascita: cur.nascita || "", codice: cur.codice || "", accesso: cur.accesso || "",
+                procedura: cur.procedura || "", chirurghi: cur.chirurgo ? [cur.chirurgo] : [], note: "", bozza: true });
+              toast(`${pazNome(cur)} inserito in programma ${fmtDay(d, { weekday: "short", day: "numeric", month: "short" })}`);
+              setTimeout(montaBox, 150);
+            } catch (e) { toast(writeError(e)); }
+          });
+        }
+        const rim = $("#pg-rimuovi", box);
+        rim && rim.addEventListener("click", async () => {
+          if (rim.dataset.armed !== "1") { rim.dataset.armed = "1"; rim.textContent = "Tocca di nuovo per rimuovere"; return; }
+          try { await saveSlot(cur.dataProgrammata, cur.slot, null); toast(`${pazNome(cur)} rimosso dal programma operatorio`); setTimeout(montaBox, 150); }
+          catch (e) { toast(writeError(e)); }
+        });
+      };
+      if (box) montaBox();
       const wd = $("#wl-doc", form);
       wd && wd.addEventListener("click", async () => {
         if (!window.JSZip) { toast("Libreria Word non caricata: ricarica la pagina."); return; }
@@ -3511,7 +3567,8 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
     const primo = (new Date(m.getFullYear(), m.getMonth(), 1).getDay() + 6) % 7, n = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
     const celle = Array.from({ length: primo }, () => "<span></span>").concat(Array.from({ length: n }, (_, i) => {
       const d = ymd(new Date(m.getFullYear(), m.getMonth(), i + 1));
-      return `<button type="button" data-cal-d="${d}" class="${d === ymd(t0) ? "oggi" : ""}${d === sel ? " sel" : ""}">${i + 1}</button>`; }));
+      const no = box.dataset.sedute && (d < ymd(t0) || !isSessionDay(d) || !slotsDi(d).some((x) => !S.programma[d]?.slots?.[x.k]));
+      return `<button type="button" data-cal-d="${d}" class="${d === ymd(t0) ? "oggi" : ""}${d === sel ? " sel" : ""}"${no ? ' disabled title="Nessuno slot libero"' : ""}>${i + 1}</button>`; }));
     pan.innerHTML = `<div class="cal-head"><button type="button" class="icon-btn" data-cal-m="-1" aria-label="Mese precedente" ${m <= m0 ? "disabled" : ""}>‹</button>
       <b>${m.toLocaleDateString("it-IT", { month: "long", year: "numeric" })}</b><button type="button" class="icon-btn" data-cal-m="1" aria-label="Mese successivo">›</button></div>
       <div class="cal-grid">${["L", "M", "M", "G", "V", "S", "D"].map((g) => `<span class="dow">${g}</span>`).join("")}${celle.join("")}</div>
