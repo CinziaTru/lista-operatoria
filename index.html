@@ -382,6 +382,11 @@ html, body, button, a, label, input, select, textarea { touch-action: manipulati
 .note-sugg .btn { text-align: left; }
 .note-sugg .btn:disabled { opacity: .45; background: transparent; cursor: default; }
 .cal-field.cal-off .cal-txt, .cal-field.cal-off .cal-btn { opacity: .45; cursor: not-allowed; }
+.coppia { position: relative; display: grid; gap: 10px; }
+.coppia.piccola { gap: 4px; }
+.swap-btn { position: absolute; right: -8px; top: 50%; transform: translateY(-50%); z-index: 2; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); font-size: 1.25rem; font-weight: 700; line-height: 1; cursor: pointer; box-shadow: var(--shadow); display: grid; place-items: center; }
+.coppia.piccola .swap-btn { width: 30px; height: 30px; font-size: 1rem; right: -6px; }
+.swap-btn:active { background: var(--accent-soft); }
 .pill.fest { background: var(--idle-bg); color: var(--idle-fg); }
 .pill.fest::before { display: none; }
 .day-fest { opacity: .75; }
@@ -1242,6 +1247,25 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     </article>`;
   }
 
+  // 1° e 2° intervento della sala ordinaria raggruppati, con il tasto per invertirli a destra, a metà tra i due
+  function coppia(date, voci, piccolo = false) {
+    const sl = S.programma[date]?.slots || {};
+    const btn = S.role === "admin" && (sl.s1 || sl.s2) ? `<button type="button" class="swap-btn" data-act="swap" data-date="${date}" aria-label="Inverti 1° e 2° intervento" title="Inverti 1° e 2° intervento">⇅</button>` : "";
+    return `<div class="coppia${piccolo ? " piccola" : ""}">${voci[0]}${voci[1]}${btn}</div>${voci.slice(2).join("")}`;
+  }
+  // Inverte 1° e 2° intervento di una seduta (con i dati di sala e la scheda dei pazienti)
+  async function invertiSlot(date) {
+    const cur = clone(S.programma[date]); if (!cur?.slots) return;
+    const a = cur.slots.s1, b = cur.slots.s2;
+    if (b) cur.slots.s1 = b; else delete cur.slots.s1;
+    if (a) cur.slots.s2 = a; else delete cur.slots.s2;
+    cur.updatedAt = Date.now(); cur.updatedBy = S.uid;
+    await S.db.doc("programma/" + date).set(cur);
+    if (a?.attesaId && S.attesa[a.attesaId]) await S.db.doc("attesa/" + a.attesaId).update({ slot: "s2" });
+    if (b?.attesaId && S.attesa[b.attesaId]) await S.db.doc("attesa/" + b.attesaId).update({ slot: "s1" });
+    const ex = S.esecuzione[date];
+    if (ex && (ex.s1 || ex.s2)) { const e = clone(ex), e1 = e.s1, e2 = e.s2; if (e2) e.s1 = e2; else delete e.s1; if (e1) e.s2 = e1; else delete e.s2; e.updatedAt = Date.now(); e.updatedBy = S.uid; await S.db.doc("esecuzione/" + date).set(e); }
+  }
   function dayBlock(date, opts = {}) {
     const doc = S.programma[date];
     const fest = festivo(date);
@@ -1261,7 +1285,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const by = doc?.updatedAt ? `<div class="meta muted" style="font-size:var(--fs-sm)">Ultima modifica: ${fmtStamp(doc.updatedAt)}${doc.updatedBy ? ` da <span data-uid="${esc(doc.updatedBy)}">…</span>` : ""}</div>` : "";
     return `<section class="day" aria-label="${esc(fmtDay(date))}">
       <div class="day-head"><h3 class="${isToday ? "today" : ""}">${isToday ? "Oggi · " : ""}${fmtDay(date)}</h3>${pills.join("")}${S.role === "admin" ? `<button class="btn small lp-btn" data-act="lp" data-date="${date}">AGGIUNGI SALA LP</button>` : ""}</div>
-      ${SLOTS.map((sl) => slotCard(date, sl, opts)).join("")}
+      ${coppia(date, SLOTS.map((sl) => slotCard(date, sl, opts)))}
       ${lpRooms(date).map((r) => {
         const sl = lpSlotsRoom(r), vuota = !sl.some((x) => doc.slots?.[x.k]), ultimoVuoto = r.n > 1 && !doc.slots?.[sl[sl.length - 1].k];
         return `<div class="lp-head"><span class="pill lp">SALA LP</span><strong>${r.sala ? esc(r.sala) + " · " : ""}inizio ore ${esc(oraBreve(r.inizio))}</strong>
@@ -1346,7 +1370,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const mon = ymd(weekStart(0 + Math.round((weekStartOf(d) - weekStart(0)) / 604800000)));
       if (mon !== wk) { wk = mon; rows.push(`<div class="mweek">Settimana dal ${fmtDay(mon, { day: "numeric", month: "short" })}</div>`); }
       const isT = d === ymd(today0());
-      rows.push(`<div class="mday${isT ? " is-today" : ""}"><div class="mdate"><b>${parse(d).getDate()}</b><span>${fmtDay(d, { weekday: "short" })}</span></div><div class="mslots">${slotsDi(d).map((sl) => {
+      rows.push(`<div class="mday${isT ? " is-today" : ""}"><div class="mdate"><b>${parse(d).getDate()}</b><span>${fmtDay(d, { weekday: "short" })}</span></div><div class="mslots">${coppia(d, slotsDi(d).map((sl) => {
         const p = S.programma[d]?.slots?.[sl.k], st = statoSlot(d, sl.k);
         const act = S.role === "admin" ? "prog" : p && S.role === "team" ? "exec" : "";
         const tag = act ? "button" : "div";
@@ -1354,7 +1378,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
           <span class="mtime">${sl.lp ? "LP " + (sl.ora === "A seguire" ? "seg." : sl.ora) : sl.k === "s1" ? "8:00" : "A seg."}</span>
           <span class="mtxt">${p?.cchped ? `<strong>${CCHPED}</strong>` : p ? `<strong>${esc(pazNome(p))}${pazLP(p, sl.lp) ? `<span class="lp-tag">LP</span>` : ""}</strong><small>${esc(p.procedura || "procedura da definire")}${p.accesso ? " · " + esc(p.accesso) : ""}</small>` : `<span class="muted">Libero</span>`}</span>
           ${st && st !== "cchped" ? `<span class="pill st-${st}">${STATI[st]}</span>` : ""}</${tag}>`;
-      }).join("")}</div></div>`);
+      }), true)}</div></div>`);
     });
     out.push(`<div class="mlist">${rows.join("")}</div>`);
     return out.join("");
@@ -3638,6 +3662,7 @@ ${Array.from({ length: n }, (_, r) => `<w:tr><w:trPr><w:trHeight w:val="${h}" w:
     const { act, date, slot } = b.dataset;
     try {
       if (act === "prog") sheetProgramma(date, slot);
+      else if (act === "swap") { await invertiSlot(date); toast("1° e 2° intervento invertiti"); }
       else if (act === "cchped") { await saveSlot(date, slot, { cchped: true }); toast(`Slot riservato a ${CCHPED}`); }
       else if (act === "exec") sheetEsecuzione(date, slot);
       else if (act === "calv") { if (S.cal !== b.value) { S.cal = b.value; render(); window.scrollTo(0, 0); } }
