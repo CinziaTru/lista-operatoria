@@ -2602,7 +2602,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <div class="field"><label for="sp-slot">Slot</label><select id="sp-slot"><option value="">Scegli prima la seduta</option></select></div>
         <p class="hint" id="sp-msg" aria-live="polite" style="margin:0"></p>
         <div class="loc-bar"><button type="button" class="btn primary" id="sp-go">Sposta qui</button><button type="button" class="btn" id="sp-annulla">Annulla</button></div></div>` : ""}
-      ${saveBar(S.programma[date]?.slots?.[k] ? `<button type="button" class="btn danger" id="p-clear">Libera lo slot</button><button type="button" class="btn" id="p-sposta">Sposta</button>` : "")}
+      ${S.programma[date]?.slots?.[k] && !sl.lp && !p.cchped ? `<div class="prog-pan" id="sa-pan" hidden></div>` : ""}
+      ${saveBar(S.programma[date]?.slots?.[k] ? `<button type="button" class="btn danger" id="p-clear">Libera lo slot</button><button type="button" class="btn" id="p-sposta">Sposta</button>${!sl.lp && !p.cchped ? `<button type="button" class="btn" id="p-avanti">Sposta tutti in avanti da qui</button>` : ""}` : "")}
     </form>`, async (fd, form, bozza) => {
       let chir = fd.getAll("chir").map((v) => v.trim());
       while (chir.length && !chir[chir.length - 1]) chir.pop();
@@ -2717,6 +2718,22 @@ https://github.com/nodeca/pako/blob/main/LICENSE
           catch (e) { toast(writeError(e)); }
         });
       }
+      const avb = $("#p-avanti", form), saPan = $("#sa-pan", form);
+      avb && avb.addEventListener("click", () => {
+        const piano = pianoAvanti(date, k), breve = (d, kk) => `${fmtDay(d, { weekday: "short", day: "numeric", month: "short" })} ${findSlot(d, kk).label}`;
+        saPan.innerHTML = piano.errore ? `<p class="hint" style="margin:0">${esc(piano.errore)}</p><div class="loc-bar"><button type="button" class="btn" id="sa-annulla">Chiudi</button></div>`
+          : `<strong>Sposta tutti in avanti di uno slot</strong><ul style="margin:0;padding-left:20px">${piano.mosse.map(([[d, kk], [nd, nk]]) => `<li><strong>${esc(pazNome(S.programma[d].slots[kk]))}</strong>: ${breve(d, kk)} → ${breve(nd, nk)}</li>`).join("")}</ul>
+            <p class="hint" style="margin:0">Restano fermi gli slot CCH PED e le sale LP. Lo spostamento si ferma al primo slot libero.</p>
+            <div class="loc-bar"><button type="button" class="btn primary" id="sa-go">Conferma spostamento</button><button type="button" class="btn" id="sa-annulla">Annulla</button></div>`;
+        saPan.hidden = false; saPan.scrollIntoView({ block: "nearest" });
+        $("#sa-annulla", saPan).addEventListener("click", () => { saPan.hidden = true; });
+        const go = $("#sa-go", saPan);
+        go && go.addEventListener("click", async () => {
+          go.disabled = true;
+          try { for (const [[d, kk], [nd, nk]] of [...piano.mosse].reverse()) await spostaSlot(d, kk, nd, nk); closeSheet(); toast(`${piano.mosse.length} ${piano.mosse.length === 1 ? "intervento spostato" : "interventi spostati"} in avanti di uno slot`); }
+          catch (e) { go.disabled = false; toast(writeError(e)); }
+        });
+      });
       const clr = $("#p-clear", form);
       clr && clr.addEventListener("click", async () => {
         if (clr.dataset.armed !== "1") { clr.dataset.armed = "1"; clr.textContent = "Tocca di nuovo per liberare"; return; }
@@ -2759,6 +2776,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const via = clone(S.esecuzione[date]); delete via[k]; via.updatedAt = Date.now(); via.updatedBy = S.uid; await S.db.doc("esecuzione/" + date).set(via);
       const qui = clone(S.esecuzione[nd] || {}); qui[nk] = ex; qui.updatedAt = Date.now(); qui.updatedBy = S.uid; await S.db.doc("esecuzione/" + nd).set(qui);
     }
+  }
+  // "Sposta tutti in avanti": dallo slot indicato, ogni intervento della sala ordinaria scala di uno slot
+  // (1° → 2° dello stesso giorno, 2° → 1° della seduta successiva) fino al primo slot libero, che assorbe lo spostamento.
+  // Restano fermi gli slot CCH PED (si scavalcano) e le sale LP; si saltano festivi e giorni senza seduta.
+  function pianoAvanti(date, k) {
+    const pos = []; // posizioni della sala ordinaria a partire da quella indicata
+    for (let g = parse(date), n = 0; n < 120; g = addDays(g, 1), n++) {
+      const d = ymd(g); if (!isSessionDay(d)) continue;
+      for (const sl of SLOTS) if (d > date || SLOTS.findIndex((x) => x.k === sl.k) >= SLOTS.findIndex((x) => x.k === k)) pos.push([d, sl.k]);
+    }
+    const occ = ([d, kk]) => S.programma[d]?.slots?.[kk];
+    const libere = pos.filter((x) => !occ(x)?.cchped); // CCH PED: fermo, si scavalca
+    const catena = [];
+    for (const x of libere) { if (!occ(x)) return { mosse: catena.map((c, i) => [c, catena[i + 1] || x]) }; catena.push(x); }
+    return { errore: "Nessuno slot libero nei prossimi 4 mesi: impossibile spostare." };
   }
   async function saveSlot(date, k, data) {
     const cur = clone(S.programma[date] || { data: date, straordinaria: parse(date).getDay() === 6, slots: {} });
